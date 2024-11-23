@@ -25,8 +25,36 @@ declare -A ventoy_sizes=(
     [6]="100"   # 100MB in MB
 )
 
-# Start the loop to allow restarting the process after VM is closed
+declare -A wallpapers=(
+    [1]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/kali/background.png"
+    [2]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/tails/background.png"
+    [3]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/parrot/background.png"
+    [4]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/backbox/background.png"
+    [5]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/rescuezilla/background.png"
+    [6]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/netboot/background.png"
+)
+
+# Cleanup function to unmount and detach devices, and clean up /tmp
+cleanup() {
+    echo "Cleaning up..."
+    
+    # Unmount /tmp/ventoy and any loop devices
+    umount /tmp/ventoy &>/dev/null || true
+    losetup -d "$loop_device" &>/dev/null || true
+
+    # Remove temporary files and directories
+    rm -rf /tmp/*
+    echo "Cleanup completed."
+}
+
+# Trap for script exit to ensure cleanup
+trap cleanup EXIT
+
+# Main loop
 while true; do
+    # Clean up and reset /tmp at the start of each iteration
+    cleanup
+
     # Prompt user to select a distro
     echo "Select a distro to download and use for the VM boot:"
     echo "1) Kali Linux"
@@ -37,7 +65,7 @@ while true; do
     echo "6) Netboot XYZ"
     read -p "Enter the number of your choice: " distro_choice
 
-    # Check if user input is valid
+    # Validate user choice
     if [[ ! ${distro_urls[$distro_choice]} ]]; then
         echo "Invalid choice. Exiting."
         exit 1
@@ -46,45 +74,32 @@ while true; do
     # Get the selected distro's ISO URL and Ventoy size
     iso_url="${distro_urls[$distro_choice]}"
     ventoy_size="${ventoy_sizes[$distro_choice]}"
+    wallpaper="${wallpapers[$distro_choice]}"
 
     # Prompt user for the amount of RAM in MB
     read -p "Enter the amount of RAM in MB for the VM: " ram_size
-
-    # Check if the input is a valid number
     if ! [[ "$ram_size" =~ ^[0-9]+$ ]]; then
         echo "Invalid RAM size. Exiting."
         exit 1
     fi
 
-    # Define Ventoy version and URL
-    ventoy_version="1.0.96"
-    ventoy_url="https://github.com/ventoy/Ventoy/releases/download/v${ventoy_version}/ventoy-${ventoy_version}-linux.tar.gz"
-    ventoy_tar="/tmp/ventoy-${ventoy_version}-linux.tar.gz"
-    ventoy_dir="/tmp/ventoy-${ventoy_version}"
+    # Download and extract Ventoy
+    cd /tmp
+    git clone https://github.com/GlitchLinux/MultiBoot-OS-QEMU-VM.git
+    cd MultiBoot-OS-QEMU-VM
+    tar -xvzf ventoy-1.0.99-linux.tar.gz
+    cd ventoy-1.0.99
 
-    # Download Ventoy and extract it to /tmp
-    wget "$ventoy_url" -O "$ventoy_tar"
-    mkdir -p "$ventoy_dir"
-    tar -xzvf "$ventoy_tar" -C "$ventoy_dir"
+    # Locate Ventoy2Disk.sh
+    ventoy_script="./Ventoy2Disk.sh"
 
-    # Find Ventoy2Disk.sh inside the extracted directory and its subdirectories
-    ventoy_script=$(find "$ventoy_dir" -type f -name Ventoy2Disk.sh -print -quit)
-
-    # Check if Ventoy2Disk.sh is found
-    if [ -z "$ventoy_script" ]; then
-        echo "Error: Ventoy2Disk.sh not found in the extracted files."
-        exit 1
-    fi
-
-    # Create the Ventoy image file with the specified size in MB
+    # Create Ventoy image file
     img_path="/tmp/ventoy.img"
     dd if=/dev/zero of="$img_path" bs=1M count="$ventoy_size" status=progress
-
-    # Set up loop device
     loop_device=$(losetup -f)
     losetup "$loop_device" "$img_path"
 
-    # Format the loopback device with Ventoy exFAT/Master Boot Record (MBR)
+    # Format with Ventoy
     echo -e "y\ny" | "$ventoy_script" -I -s "$loop_device"
     if [ $? -ne 0 ]; then
         echo "Error: Ventoy formatting failed."
@@ -92,7 +107,38 @@ while true; do
         exit 1
     fi
 
-    # Mount the Ventoy exFAT partition to /tmp/ventoy
+    # Mount Ventoy EFI partition and copy wallpaper
+    efi_device="/dev/loop0p2"
+    mount_point="/media/root/VTOYEFI1"
+
+    # Create mount point and mount the EFI partition
+    mkdir -p "$mount_point"
+    mount "$efi_device" "$mount_point"
+
+    if [[ $? -eq 0 ]]; then
+        echo "EFI partition mounted at $mount_point."
+
+        # Replace the default wallpaper
+        wallpaper_path="$mount_point/grub/themes/ventoy/background.png"
+        if [[ -f "$wallpaper" ]]; then
+            echo "Copying wallpaper to EFI partition..."
+            rm -f "$wallpaper_path"
+            cp "$wallpaper" "$wallpaper_path"
+            echo "Wallpaper copied successfully."
+        else
+            echo "Wallpaper file not found: $wallpaper"
+        fi
+
+        # Unmount the EFI partition
+        umount "$mount_point"
+    else
+        echo "Failed to mount EFI partition."
+    fi
+
+    # Clean up mount point
+    rmdir "$mount_point"
+
+    # Mount Ventoy exFAT partition
     mkdir -p /tmp/ventoy
     mount "${loop_device}p1" /tmp/ventoy
 
@@ -101,27 +147,16 @@ while true; do
     iso_path="/tmp/ventoy/$iso_filename"
     wget "$iso_url" -O "$iso_path"
 
-    # Verify if the ISO was downloaded successfully
-    if [ ! -f "$iso_path" ]; then
-        echo "Error: ISO download failed."
-        umount /tmp/ventoy
-        losetup -d "$loop_device"
-        exit 1
-    fi
-
-    # ISO file exists on the exFAT partition, proceed with unmounting and starting the VM
-
-    # Unmount the Ventoy exFAT partition and detach the loopback device
+    # Unmount Ventoy partition
     umount /tmp/ventoy
-    losetup -d "$loop_device"
 
-    # Start a VM with QEMU using the .img file with the specified RAM, KVM acceleration, and CPU optimization
+    # Start VM with QEMU
     qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m "$ram_size" -drive format=raw,file="$img_path"
 
-    # After the QEMU VM is closed, delete residual files from /tmp
-    rm -rf /tmp/*
+    # Clean up /tmp and unmount any loop devices after VM closes
+    cleanup
 
-    # Prompt user if they want to continue (this can be modified to directly restart)
+    # Prompt user if they want to restart
     read -p "VM has closed. Do you want to select another ISO to boot with? (y/n): " restart_choice
     if [[ "$restart_choice" != "y" ]]; then
         echo "Exiting the script."

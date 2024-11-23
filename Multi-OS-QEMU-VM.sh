@@ -25,13 +25,14 @@ declare -A ventoy_sizes=(
     [6]="100"   # 100MB in MB
 )
 
-declare -A wallpapers=(
-    [1]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/kali/background.png"
-    [2]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/tails/background.png"
-    [3]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/parrot/background.png"
-    [4]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/backbox/background.png"
-    [5]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/rescuezilla/background.png"
-    [6]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/netboot/background.png"
+# Declare the location of each ventoy folder for each distro
+declare -A ventoy=(
+    [1]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/kali/ventoy"
+    [2]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/tails/ventoy"
+    [3]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/parrot/ventoy"
+    [4]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/backbox/ventoy"
+    [5]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/rescuezilla/ventoy"
+    [6]="/tmp/MultiBoot-OS-QEMU-VM/ventoy-1.0.99/netboot/ventoy"
 )
 
 # Cleanup function to unmount and detach devices, and clean up /tmp
@@ -74,7 +75,6 @@ while true; do
     # Get the selected distro's ISO URL and Ventoy size
     iso_url="${distro_urls[$distro_choice]}"
     ventoy_size="${ventoy_sizes[$distro_choice]}"
-    wallpaper="${wallpapers[$distro_choice]}"
 
     # Prompt user for the amount of RAM in MB
     read -p "Enter the amount of RAM in MB for the VM: " ram_size
@@ -107,7 +107,7 @@ while true; do
         exit 1
     fi
 
-    # Mount Ventoy EFI partition and copy wallpaper
+    # Mount Ventoy EFI partition and copy the appropriate distro folder
     efi_device="/dev/loop0p2"
     mount_point="/media/root/VTOYEFI1"
 
@@ -118,16 +118,9 @@ while true; do
     if [[ $? -eq 0 ]]; then
         echo "EFI partition mounted at $mount_point."
 
-        # Replace the default wallpaper
-        wallpaper_path="$mount_point/grub/themes/ventoy/background.png"
-        if [[ -f "$wallpaper" ]]; then
-            echo "Copying wallpaper to EFI partition..."
-            rm -f "$wallpaper_path"
-            cp "$wallpaper" "$wallpaper_path"
-            echo "Wallpaper copied successfully."
-        else
-            echo "Wallpaper file not found: $wallpaper"
-        fi
+        # Remove the existing ventoy folder and copy the appropriate distro folder
+        rm -r "$mount_point/grub/themes/ventoy"
+        cp -r "${ventoy[$distro_choice]}" "$mount_point/grub/themes/ventoy"
 
         # Unmount the EFI partition
         umount "$mount_point"
@@ -156,10 +149,5 @@ while true; do
     # Clean up /tmp and unmount any loop devices after VM closes
     cleanup
 
-    # Prompt user if they want to restart
-    read -p "VM has closed. Do you want to select another ISO to boot with? (y/n): " restart_choice
-    if [[ "$restart_choice" != "y" ]]; then
-        echo "Exiting the script."
-        break
-    fi
+    # Relaunch the distro selection menu automatically after VM is closed
 done

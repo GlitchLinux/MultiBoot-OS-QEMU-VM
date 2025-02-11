@@ -8,8 +8,8 @@ fi
 
 # Define available distributions with corresponding download URLs and Ventoy sizes
 declare -A distro_urls=(
-    [1]="https://cdimage.kali.org/kali-2024.3/kali-linux-2024.3-live-amd64.iso"
-    [2]="https://download.tails.net/tails/stable/tails-amd64-6.10/tails-amd64-6.10.iso"
+    [1]="https://glitchlinux.wtf/FILES/LINUX-ISO/kali-linux-2024.4-live-amd64.iso"
+    [2]="https://glitchlinux.wtf/FILES/LINUX-ISO/tails-amd64-6.12.iso"
     [3]="https://deb.parrot.sh/parrot/iso/6.2/Parrot-home-6.2_amd64.iso"
     [4]="https://backbox.mirror.garr.it/backbox-9-desktop-amd64.iso"
     [5]="https://github.com/rescuezilla/rescuezilla/releases/download/2.5/rescuezilla-2.5-64bit.noble.iso"
